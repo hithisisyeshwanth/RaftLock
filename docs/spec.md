@@ -14,65 +14,16 @@ The loop for every task:
 
 A task is done only when: its tests pass with -race, go vet is clean, the diff touches nothing outside the task, and you can explain every line. The prompts are reference. Adapt or ignore them freely.
 
-## 2. Architecture decisions (these become CLAUDE.md rules)
+## 2. Standing rules
 
-1. **Deterministic core.** `internal/raft` has no goroutines, no time.Now, no global rand, no network. Time enters through `Tick()` (1 tick = 1 ms of logical time). Messages enter through `Step(msg)`. Outputs are returned as messages. Every test and chaos run is reproducible from a seed.
-2. **Persist before send.** Step and Tick persist any changed durable state first, then return messages. The harness only sends after the call returns, so a reply can never leave before its state is on disk (Figure 2, persistent state). If persisting fails, return no messages.
-3. **One-way async messages.** Replies are separate messages handled explicitly, as on slides 5 to 8. Replies carry the term, so stale, duplicated, and reordered replies are gated.
-4. **1-based indexes, log[0] is a sentinel with term 0.** Log length equals last index, so slide 'length' fields equal paper 'index' fields.
-5. **Fixed three-node cluster for the system.** The test harness accepts N nodes, which Figure 8 needs (five servers).
-6. **The state machine has no clock.** It receives (index, command). The fencing token is the log index of the acquire entry.
-7. **Runtime wrapper last.** One goroutine owns the node. Real network and real timers arrive only in Phase 7.
-8. **Simple persistence.** Each Save rewrites the whole durable state atomically. Optimize later if ever.
+Architecture rules, node API and message shapes, repo layout, commands, and the slide-to-paper vocabulary live in CLAUDE.md, which Claude Code loads every session. They are not repeated here. If a task seems to conflict with CLAUDE.md, stop and ask.
 
-### Slide to paper vocabulary (code uses the paper names)
-
-- sentLength[f] = nextIndex[f] - 1
-- ackedLength[f] = matchIndex[f]
-- commitLength = commitIndex
-- delivered length = lastApplied
-- replicate-log message and its ack = AppendEntries args and reply
-- votesReceived = the votes set; currentRole = role; currentLeader = leaderID
-
-### Message shapes and node API
-
-```go
-type RequestVoteArgs struct { Term Term; CandidateID NodeID; LastLogIndex Index; LastLogTerm Term }
-type RequestVoteReply struct { Term Term; VoteGranted bool }
-type AppendEntriesArgs struct { Term Term; LeaderID NodeID; PrevLogIndex Index; PrevLogTerm Term; Entries []Entry; LeaderCommit Index }
-// PrevLogIndex echoes the request. MatchIndex = prev + len(entries) on success.
-type AppendEntriesReply struct { Term Term; Success bool; MatchIndex Index; PrevLogIndex Index }
-
-func (n *Node) Step(m Message) []Message
-func (n *Node) Tick() []Message
-func (n *Node) Propose(cmd []byte) (ProposeResult, []Message) // ProposeResult{Index, Term, IsLeader, LeaderHint}
-```
-
-### Repo layout
-
-```
-raftlock/
-  CLAUDE.md
-  Makefile
-  docs/spec.md                 (this document)
-  internal/raft/               core node, log, storage interface, messages
-  internal/storage/            FileStorage
-  internal/netsim/             fake network
-  internal/check/              Figure 3 safety checkers
-  internal/sim/                cluster harness, chaos tests
-  internal/lock/               lock state machine, server, clerk
-  internal/rpc/                real HTTP/JSON transport and runtime loop
-  cmd/raftsim/                 prints a trace of a simulated cluster
-  cmd/raftlockd/               real node binary
-  cmd/raftlockctl/             CLI client
-```
-
-### Standard prompts
+## 3. Standard prompts
 
 **P0 (once per Claude Code session):**
 
 ```
-Read CLAUDE.md and docs/spec.md. We work one task at a time. For each task: (1) write tests only, (2) run them and show they fail for the right reason, (3) stop and wait for me. Never implement before I say so. Never edit tests during implementation unless I ask.
+Read docs/spec.md. CLAUDE.md is already loaded. We work one task at a time. For each task: (1) write tests only, (2) run them and show they fail for the right reason, (3) stop and wait for me. Never implement before I say so. Never edit tests during implementation unless I ask.
 ```
 
 **P2 (implement, paste after reviewing the tests):**
@@ -84,7 +35,7 @@ I reviewed the tests for <Tx.y>. Implement the minimum needed to pass them, foll
 **P3 (review):**
 
 ```
-Show git diff --stat and git diff. Flag anything outside task <Tx.y>, any goroutine, time.Now, or global rand inside internal/raft, and any exported API not listed in docs/spec.md.
+Show git diff --stat and git diff. Flag anything outside task <Tx.y>, any goroutine, time.Now, or global rand inside internal/raft, and any exported API not listed in CLAUDE.md.
 ```
 
 **P4 (a test fails and you do not know why):**
@@ -95,25 +46,25 @@ Test <name> fails. Do not change the tests. First explain the root cause and whi
 
 ## Phase 0: Setup and building blocks
 
-### T0.1 Repo skeleton, Makefile, CLAUDE.md
+### T0.1 Repo skeleton and Makefile
 
 **Test first:** `internal/raft/smoke_test.go` with TestSmoke. `make test` and `make vet` must exist and run.
 
-**Implement:** go mod init, the directories above, Makefile (`test` = `go test ./... -race -count=1`, `vet` = `go vet ./...`), and CLAUDE.md containing the section 2 decisions as rules. Copy this spec into docs/spec.md first.
+**Implement:** the directories from the repo layout in CLAUDE.md (go.mod already exists) and a Makefile (`test` = `go test ./... -race -count=1`, `vet` = `go vet ./...`). CLAUDE.md already exists, so do not rewrite it.
 
 **Run:** `make test`
 
 **Prompt (tests):**
 
 ```
-Read docs/spec.md sections 1 and 2. Create the repo skeleton and Makefile from the spec, plus a trivial smoke test. Write CLAUDE.md turning the architecture decisions into rules. Show me the files, then stop.
+Read the Repo layout and Commands sections of CLAUDE.md. Create the directory skeleton (go.mod already exists) and a Makefile with test and vet targets, plus a trivial smoke test. Do not modify CLAUDE.md. Show me the files, then stop.
 ```
 
 ### T0.2 Core types
 
 **Test first** (`types_test.go`): Role.String returns Follower, Candidate, Leader. Entry equality compares term, index, and command bytes. Zero values: Term 0, Index 0, empty NodeID.
 
-**Implement:** `Term uint64`, `Index uint64`, `NodeID string`, `Role`, `Entry{Term, Index, Cmd}`, `Message{From, To, Body}`, and the four message structs from section 2.
+**Implement:** `Term uint64`, `Index uint64`, `NodeID string`, `Role`, `Entry{Term, Index, Cmd}`, `Message{From, To, Body}`, and the four message structs from the Node API section of CLAUDE.md.
 
 **Run:** `go test ./internal/raft -run TestTypes -race -count=1`
 
@@ -1014,14 +965,14 @@ Task T7.5. Write tests only for the raftlockctl commands (acquire, release, stat
 
 **Test first:** a doc check that every command in the README exists as a make target or cmd directory.
 
-**Implement:** README (what it is, how to run, how it is tested, what is deliberately out of scope), architecture diagram, and a decision log entry per section 2 decision.
+**Implement:** README (what it is, how to run, how it is tested, what is deliberately out of scope), architecture diagram, and a decision log entry per architecture decision in CLAUDE.md.
 
 **Run:** `make test`
 
 **Prompt (tests):**
 
 ```
-Task T7.6. Write a small test that checks every command mentioned in README.md exists. Then draft the README, an architecture diagram in Mermaid, and a decision log from the spec's architecture decisions. Tests first, then stop.
+Task T7.6. Write a small test that checks every command mentioned in README.md exists. Then draft the README, an architecture diagram in Mermaid, and a decision log from the architecture decisions in CLAUDE.md. Tests first, then stop.
 ```
 
 ## What may be missing (your call)
