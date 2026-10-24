@@ -1,0 +1,17 @@
+# Binaries
+/bin/
+*.exe
+*.test
+*.out
+
+# Coverage and profiles
+*.coverprofile
+*.prof
+
+# Local Raft data
+/data/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
