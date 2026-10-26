@@ -25,6 +25,9 @@ type Node struct {
 	// Logical time in ticks since start, and the tick at which a follower or candidate times out.
 	now              int
 	electionDeadline int
+
+	// votes is the set of nodes that granted this candidate a vote in currentTerm, itself included (slide 3).
+	votes map[NodeID]bool
 }
 
 // NewNode builds a follower from whatever storage holds; commitIndex and lastApplied start at 0.
@@ -80,6 +83,7 @@ func (n *Node) startElection() []Message {
 		return nil
 	}
 	n.currentTerm, n.votedFor, n.role = term, n.id, Candidate
+	n.votes = map[NodeID]bool{n.id: true}
 	n.resetElectionTimer()
 
 	args := RequestVoteArgs{Term: term, CandidateID: n.id, LastLogIndex: n.log.LastIndex(), LastLogTerm: n.log.LastTerm()}
@@ -138,8 +142,36 @@ func (n *Node) Step(m Message) []Message {
 	switch body := m.Body.(type) {
 	case RequestVoteArgs:
 		return n.handleRequestVote(m.From, body)
+	case RequestVoteReply:
+		return n.handleVoteReply(m.From, body)
 	}
 	return nil
+}
+
+// handleVoteReply counts a grant toward this candidate's election. Replies are one-way and may be
+// stale, duplicated, or reordered, so only a candidate counts them, only for its current term, and
+// only once per peer; a reply with a higher term steps the node down instead.
+func (n *Node) handleVoteReply(from NodeID, r RequestVoteReply) []Message {
+	if n.adoptTermIfHigher(r.Term) || r.Term > n.currentTerm {
+		return nil // stepped down, or the higher term could not be saved
+	}
+	if n.role != Candidate || r.Term != n.currentTerm || !r.VoteGranted || !n.isPeer(from) {
+		return nil
+	}
+	n.votes[from] = true
+	if len(n.votes) > (len(n.peers)+1)/2 {
+		n.role = Leader
+	}
+	return nil
+}
+
+func (n *Node) isPeer(id NodeID) bool {
+	for _, p := range n.peers {
+		if p == id {
+			return true
+		}
+	}
+	return false
 }
 
 // handleRequestVote implements Figure 2's RequestVote rules 1 and 2: deny a stale term, and
