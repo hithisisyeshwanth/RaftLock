@@ -101,10 +101,27 @@ func (n *Node) Step(m Message) []Message {
 	return nil
 }
 
-// handleRequestVote implements only the term rule (Figure 2, RequestVote rule 1).
-// Granting votes comes with T2.4 and T2.5, so the reply is always a denial for now.
+// handleRequestVote implements Figure 2's RequestVote rules 1 and 2: deny a stale term, and
+// grant at most one vote per term (re-granting the same candidate). The log check is T2.5.
 func (n *Node) handleRequestVote(from NodeID, args RequestVoteArgs) []Message {
 	n.adoptTermIfHigher(args.Term) // before the reply, so it carries the new term
 	reply := RequestVoteReply{Term: n.currentTerm}
+	if args.Term == n.currentTerm && (n.votedFor == "" || n.votedFor == args.CandidateID) {
+		reply.VoteGranted = n.recordVote(args.CandidateID)
+	}
 	return []Message{{From: n.id, To: from, Body: reply}}
+}
+
+// recordVote saves the vote before setting it in memory, so a granted vote is never lost
+// in a crash. A repeat vote for the same candidate changes nothing and is not saved again.
+func (n *Node) recordVote(candidate NodeID) bool {
+	if n.votedFor == candidate {
+		return true
+	}
+	err := n.storage.Save(PersistentState{CurrentTerm: n.currentTerm, VotedFor: candidate, Log: n.log.Slice(1, n.log.LastIndex()+1)})
+	if err != nil {
+		return false
+	}
+	n.votedFor = candidate
+	return true
 }
