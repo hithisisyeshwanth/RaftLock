@@ -149,6 +149,9 @@ func (c *Cluster) Restart(id raft.NodeID) error {
 	return nil
 }
 
+// SetTimeouts replaces the election timeout source id will use from its next Restart on.
+func (c *Cluster) SetTimeouts(id raft.NodeID, ts raft.TimeoutSource) { c.timeouts[id] = ts }
+
 func (c *Cluster) Partition(groups ...[]raft.NodeID) { c.net.Partition(groups...) }
 
 func (c *Cluster) Heal() { c.net.Heal() }
