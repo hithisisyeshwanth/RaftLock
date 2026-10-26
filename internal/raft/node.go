@@ -77,9 +77,8 @@ func (n *Node) Snapshot() Snapshot {
 
 // adoptTermIfHigher is Figure 2's "all servers" rule: on seeing a higher term in any RPC or
 // reply, adopt it, clear the vote, and become a follower. It saves before changing memory,
-// so an unsaved term is never acted on.
-// ponytail: a failed Save returns false, which callers cannot tell from "term not higher".
-// T2.6 must surface the error before any reply path relies on this.
+// so an unsaved term is never acted on. A failed Save also returns false; a caller that must
+// not reply in that case checks whether t is still above currentTerm afterwards.
 func (n *Node) adoptTermIfHigher(t Term) bool {
 	if t <= n.currentTerm {
 		return false
@@ -103,12 +102,19 @@ func (n *Node) Step(m Message) []Message {
 
 // handleRequestVote implements Figure 2's RequestVote rules 1 and 2: deny a stale term, and
 // grant at most one vote per term (re-granting the same candidate) to an up-to-date candidate.
+// Every write is saved before the reply is built; if a save fails, nothing is sent.
 func (n *Node) handleRequestVote(from NodeID, args RequestVoteArgs) []Message {
 	n.adoptTermIfHigher(args.Term) // before the reply, so it carries the new term
+	if args.Term > n.currentTerm {
+		return nil // the higher term could not be saved
+	}
 	reply := RequestVoteReply{Term: n.currentTerm}
 	if args.Term == n.currentTerm && (n.votedFor == "" || n.votedFor == args.CandidateID) &&
 		n.candidateUpToDate(args.LastLogIndex, args.LastLogTerm) {
-		reply.VoteGranted = n.recordVote(args.CandidateID)
+		if err := n.recordVote(args.CandidateID); err != nil {
+			return nil
+		}
+		reply.VoteGranted = true
 	}
 	return []Message{{From: n.id, To: from, Body: reply}}
 }
@@ -123,14 +129,14 @@ func (n *Node) candidateUpToDate(lastIdx Index, lastTerm Term) bool {
 
 // recordVote saves the vote before setting it in memory, so a granted vote is never lost
 // in a crash. A repeat vote for the same candidate changes nothing and is not saved again.
-func (n *Node) recordVote(candidate NodeID) bool {
+func (n *Node) recordVote(candidate NodeID) error {
 	if n.votedFor == candidate {
-		return true
+		return nil
 	}
 	err := n.storage.Save(PersistentState{CurrentTerm: n.currentTerm, VotedFor: candidate, Log: n.log.Slice(1, n.log.LastIndex()+1)})
 	if err != nil {
-		return false
+		return err
 	}
 	n.votedFor = candidate
-	return true
+	return nil
 }
