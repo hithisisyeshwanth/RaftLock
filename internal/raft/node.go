@@ -102,14 +102,23 @@ func (n *Node) Step(m Message) []Message {
 }
 
 // handleRequestVote implements Figure 2's RequestVote rules 1 and 2: deny a stale term, and
-// grant at most one vote per term (re-granting the same candidate). The log check is T2.5.
+// grant at most one vote per term (re-granting the same candidate) to an up-to-date candidate.
 func (n *Node) handleRequestVote(from NodeID, args RequestVoteArgs) []Message {
 	n.adoptTermIfHigher(args.Term) // before the reply, so it carries the new term
 	reply := RequestVoteReply{Term: n.currentTerm}
-	if args.Term == n.currentTerm && (n.votedFor == "" || n.votedFor == args.CandidateID) {
+	if args.Term == n.currentTerm && (n.votedFor == "" || n.votedFor == args.CandidateID) &&
+		n.candidateUpToDate(args.LastLogIndex, args.LastLogTerm) {
 		reply.VoteGranted = n.recordVote(args.CandidateID)
 	}
 	return []Message{{From: n.id, To: from, Body: reply}}
+}
+
+// candidateUpToDate is section 5.4.1: compare last terms first, and only on a tie compare lengths.
+func (n *Node) candidateUpToDate(lastIdx Index, lastTerm Term) bool {
+	if lastTerm != n.log.LastTerm() {
+		return lastTerm > n.log.LastTerm()
+	}
+	return lastIdx >= n.log.LastIndex()
 }
 
 // recordVote saves the vote before setting it in memory, so a granted vote is never lost
