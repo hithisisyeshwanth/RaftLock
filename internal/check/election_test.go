@@ -120,11 +120,11 @@ func TestElectionSafety(t *testing.T) {
 // Each checker starts with no history, so a violation in one run is invisible to a fresh one.
 func TestElectionSafetyFreshCheckerHasNoHistory(t *testing.T) {
 	first := NewElectionSafety()
-	if err := first.Observe([]Snapshot{snap("n1", 2, Leader)}); err != nil {
+	if err := first.Observe([]Snapshot{snap("n1", 2, raft.Leader)}); err != nil {
 		t.Fatalf("Observe() = %v", err)
 	}
 	second := NewElectionSafety()
-	if err := second.Observe([]Snapshot{snap("n2", 2, Leader)}); err != nil {
+	if err := second.Observe([]Snapshot{snap("n2", 2, raft.Leader)}); err != nil {
 		t.Errorf("a new checker flagged a leader seen only by another checker: %v", err)
 	}
 }
