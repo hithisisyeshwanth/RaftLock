@@ -211,6 +211,7 @@ func (n *Node) handleVoteReply(from NodeID, r RequestVoteReply) []Message {
 func (n *Node) becomeLeader() []Message {
 	n.role = Leader
 	n.leaderID = n.id
+	trace(n.tracer, Event{Node: n.id, Term: n.currentTerm, Role: n.role, Kind: "became-leader"})
 	n.nextIndex = make(map[NodeID]Index, len(n.peers))
 	n.matchIndex = make(map[NodeID]Index, len(n.peers))
 	for _, p := range n.peers {

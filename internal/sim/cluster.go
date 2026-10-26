@@ -24,6 +24,18 @@ type Cluster struct {
 
 	// Tamper, if set, edits the snapshots just before the checkers see them. Tests use it to inject violations.
 	Tamper func([]check.Snapshot)
+
+	// Tracer, if set, receives every node's trace events. It can be set any time after NewCluster.
+	Tracer raft.Tracer
+}
+
+// forwardTracer lets nodes built before Cluster.Tracer is set still reach it.
+type forwardTracer struct{ c *Cluster }
+
+func (f forwardTracer) Trace(e raft.Event) {
+	if f.c.Tracer != nil {
+		f.c.Tracer.Trace(e)
+	}
 }
 
 func NewCluster(n int, seed int64) *Cluster {
@@ -141,7 +153,7 @@ func (c *Cluster) Restart(id raft.NodeID) error {
 	}
 	c.applied[id] = nil
 	onApply := func(e raft.Entry) { c.applied[id] = append(c.applied[id], e) }
-	n, err := raft.NewNode(c.cfg, id, peers, c.storage[id], nil, c.timeouts[id], onApply)
+	n, err := raft.NewNode(c.cfg, id, peers, c.storage[id], forwardTracer{c}, c.timeouts[id], onApply)
 	if err != nil {
 		return fmt.Errorf("restart %s: %w", id, err)
 	}
