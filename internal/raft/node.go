@@ -65,8 +65,29 @@ func (n *Node) Tick() []Message {
 	n.now++
 	if n.role != Leader && n.now >= n.electionDeadline {
 		trace(n.tracer, Event{Node: n.id, Term: n.currentTerm, Role: n.role, Kind: "election-timeout"})
+		return n.startElection()
 	}
 	return nil
+}
+
+// startElection is section 5.2: move to the next term, vote for itself, and ask every peer
+// for a vote. The new term and self-vote are saved first; if that fails nothing changes and
+// nothing is sent, and the still-passed deadline makes the next tick try again.
+func (n *Node) startElection() []Message {
+	term := n.currentTerm + 1
+	err := n.storage.Save(PersistentState{CurrentTerm: term, VotedFor: n.id, Log: n.log.Slice(1, n.log.LastIndex()+1)})
+	if err != nil {
+		return nil
+	}
+	n.currentTerm, n.votedFor, n.role = term, n.id, Candidate
+	n.resetElectionTimer()
+
+	args := RequestVoteArgs{Term: term, CandidateID: n.id, LastLogIndex: n.log.LastIndex(), LastLogTerm: n.log.LastTerm()}
+	out := make([]Message, 0, len(n.peers))
+	for _, p := range n.peers {
+		out = append(out, Message{From: n.id, To: p, Body: args})
+	}
+	return out
 }
 
 // Snapshot is a read-only copy of a node's state for tests and the safety checkers.
