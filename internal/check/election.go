@@ -7,12 +7,16 @@ import (
 	"github.com/hithisisyeshwanth/RaftLock/internal/raft"
 )
 
-// Snapshot is one node's state at a point in time. Later checkers add fields (commitIndex, applied).
+// Snapshot is one node's state at a point in time. Later checkers add fields (commitIndex).
 type Snapshot struct {
 	ID   raft.NodeID
 	Term raft.Term
 	Role raft.Role
 	Log  []raft.Entry // real entries from index 1, no sentinel
+
+	// Applied is every entry the node has applied since it last booted, in apply order.
+	// It restarts empty after a crash, because lastApplied resets to 0.
+	Applied []raft.Entry
 }
 
 // ElectionSafety checks that at most one leader is ever seen per term (Figure 3).
