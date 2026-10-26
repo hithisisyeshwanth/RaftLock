@@ -91,3 +91,20 @@ func (n *Node) adoptTermIfHigher(t Term) bool {
 	n.currentTerm, n.votedFor, n.role = t, "", Follower
 	return true
 }
+
+// Step handles one incoming message and returns the messages to send in response.
+func (n *Node) Step(m Message) []Message {
+	switch body := m.Body.(type) {
+	case RequestVoteArgs:
+		return n.handleRequestVote(m.From, body)
+	}
+	return nil
+}
+
+// handleRequestVote implements only the term rule (Figure 2, RequestVote rule 1).
+// Granting votes comes with T2.4 and T2.5, so the reply is always a denial for now.
+func (n *Node) handleRequestVote(from NodeID, args RequestVoteArgs) []Message {
+	n.adoptTermIfHigher(args.Term) // before the reply, so it carries the new term
+	reply := RequestVoteReply{Term: n.currentTerm}
+	return []Message{{From: n.id, To: from, Body: reply}}
+}
