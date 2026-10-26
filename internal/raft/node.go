@@ -74,3 +74,20 @@ func (n *Node) Snapshot() Snapshot {
 		LastApplied: n.lastApplied,
 	}
 }
+
+// adoptTermIfHigher is Figure 2's "all servers" rule: on seeing a higher term in any RPC or
+// reply, adopt it, clear the vote, and become a follower. It saves before changing memory,
+// so an unsaved term is never acted on.
+// ponytail: a failed Save returns false, which callers cannot tell from "term not higher".
+// T2.6 must surface the error before any reply path relies on this.
+func (n *Node) adoptTermIfHigher(t Term) bool {
+	if t <= n.currentTerm {
+		return false
+	}
+	err := n.storage.Save(PersistentState{CurrentTerm: t, Log: n.log.Slice(1, n.log.LastIndex()+1)})
+	if err != nil {
+		return false
+	}
+	n.currentTerm, n.votedFor, n.role = t, "", Follower
+	return true
+}
