@@ -28,6 +28,9 @@ type Node struct {
 
 	// votes is the set of nodes that granted this candidate a vote in currentTerm, itself included (slide 3).
 	votes map[NodeID]bool
+
+	// leaderID is the leader of currentTerm, once one has been heard from.
+	leaderID NodeID
 }
 
 // NewNode builds a follower from whatever storage holds; commitIndex and lastApplied start at 0.
@@ -100,6 +103,7 @@ type Snapshot struct {
 	Term        Term
 	Role        Role
 	VotedFor    NodeID
+	LeaderID    NodeID  // leader of Term, if known
 	Log         []Entry // real entries from index 1, no sentinel
 	CommitIndex Index
 	LastApplied Index
@@ -115,6 +119,7 @@ func (n *Node) Snapshot() Snapshot {
 		Term:        n.currentTerm,
 		Role:        n.role,
 		VotedFor:    n.votedFor,
+		LeaderID:    n.leaderID,
 		Log:         entries,
 		CommitIndex: n.commitIndex,
 		LastApplied: n.lastApplied,
@@ -133,7 +138,7 @@ func (n *Node) adoptTermIfHigher(t Term) bool {
 	if err != nil {
 		return false
 	}
-	n.currentTerm, n.votedFor, n.role = t, "", Follower
+	n.currentTerm, n.votedFor, n.role, n.leaderID = t, "", Follower, ""
 	return true
 }
 
@@ -144,8 +149,30 @@ func (n *Node) Step(m Message) []Message {
 		return n.handleRequestVote(m.From, body)
 	case RequestVoteReply:
 		return n.handleVoteReply(m.From, body)
+	case AppendEntriesArgs:
+		return n.handleAppendEntries(m.From, body)
 	}
 	return nil
+}
+
+// handleAppendEntries implements the term and role part of AppendEntries (slide 6, Figure 2
+// rule 1): reject a stale term; otherwise the sender is this term's leader, so record it,
+// step down if a candidate, and reset the election timer.
+// ponytail: no log consistency check or merge yet (T3.3 to T3.5), so every current-term
+// request succeeds. Only empty-log heartbeats with prevLogIndex 0 are correct until then.
+func (n *Node) handleAppendEntries(from NodeID, args AppendEntriesArgs) []Message {
+	n.adoptTermIfHigher(args.Term)
+	if args.Term > n.currentTerm {
+		return nil // the higher term could not be saved
+	}
+	reply := AppendEntriesReply{Term: n.currentTerm, PrevLogIndex: args.PrevLogIndex}
+	if args.Term == n.currentTerm {
+		n.role = Follower
+		n.leaderID = args.LeaderID
+		n.resetElectionTimer()
+		reply.Success = true
+	}
+	return []Message{{From: n.id, To: from, Body: reply}}
 }
 
 // handleVoteReply counts a grant toward this candidate's election. Replies are one-way and may be
