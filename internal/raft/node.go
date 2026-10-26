@@ -31,6 +31,11 @@ type Node struct {
 
 	// leaderID is the leader of currentTerm, once one has been heard from.
 	leaderID NodeID
+
+	// Leader state (Figure 2), reinitialized on every election win.
+	nextIndex         map[NodeID]Index // next log index to send each peer
+	matchIndex        map[NodeID]Index // highest index known replicated on each peer
+	heartbeatDeadline int              // tick at which the leader next sends heartbeats
 }
 
 // NewNode builds a follower from whatever storage holds; commitIndex and lastApplied start at 0.
@@ -65,11 +70,18 @@ func (n *Node) resetElectionTimer() {
 	n.electionDeadline = n.now + n.timeouts.Next()
 }
 
-// Tick advances logical time by one tick. A follower or candidate whose deadline has
-// passed reports an election timeout; a leader has no election timer.
+// Tick advances logical time by one tick. A leader sends heartbeats every HeartbeatInterval
+// and has no election timer; a follower or candidate whose deadline has passed starts an election.
 func (n *Node) Tick() []Message {
 	n.now++
-	if n.role != Leader && n.now >= n.electionDeadline {
+	if n.role == Leader {
+		if n.now >= n.heartbeatDeadline {
+			n.heartbeatDeadline = n.now + n.cfg.HeartbeatInterval
+			return n.sendHeartbeats()
+		}
+		return nil
+	}
+	if n.now >= n.electionDeadline {
 		trace(n.tracer, Event{Node: n.id, Term: n.currentTerm, Role: n.role, Kind: "election-timeout"})
 		return n.startElection()
 	}
@@ -151,6 +163,8 @@ func (n *Node) Step(m Message) []Message {
 		return n.handleVoteReply(m.From, body)
 	case AppendEntriesArgs:
 		return n.handleAppendEntries(m.From, body)
+	case AppendEntriesReply:
+		return n.handleAppendEntriesReply(body)
 	}
 	return nil
 }
@@ -187,8 +201,43 @@ func (n *Node) handleVoteReply(from NodeID, r RequestVoteReply) []Message {
 	}
 	n.votes[from] = true
 	if len(n.votes) > (len(n.peers)+1)/2 {
-		n.role = Leader
+		return n.becomeLeader()
 	}
+	return nil
+}
+
+// becomeLeader sets up Figure 2's leader state and heartbeats at once, so followers
+// hear from the new leader before their own election timers run out (section 5.2).
+func (n *Node) becomeLeader() []Message {
+	n.role = Leader
+	n.leaderID = n.id
+	n.nextIndex = make(map[NodeID]Index, len(n.peers))
+	n.matchIndex = make(map[NodeID]Index, len(n.peers))
+	for _, p := range n.peers {
+		n.nextIndex[p] = n.log.LastIndex() + 1
+		n.matchIndex[p] = 0
+	}
+	n.heartbeatDeadline = n.now + n.cfg.HeartbeatInterval
+	return n.sendHeartbeats()
+}
+
+// sendHeartbeats sends every peer an empty AppendEntries anchored at its nextIndex.
+// Carrying entries is T3.2.
+func (n *Node) sendHeartbeats() []Message {
+	out := make([]Message, 0, len(n.peers))
+	for _, p := range n.peers {
+		prev := n.nextIndex[p] - 1
+		prevTerm, _ := n.log.Term(prev)
+		args := AppendEntriesArgs{Term: n.currentTerm, LeaderID: n.id, PrevLogIndex: prev, PrevLogTerm: prevTerm, LeaderCommit: n.commitIndex}
+		out = append(out, Message{From: n.id, To: p, Body: args})
+	}
+	return out
+}
+
+// handleAppendEntriesReply only checks the term for now: a higher term means a newer
+// leader exists, so step down. Acting on success and failure is T3.6 and T3.7.
+func (n *Node) handleAppendEntriesReply(r AppendEntriesReply) []Message {
+	n.adoptTermIfHigher(r.Term)
 	return nil
 }
 
