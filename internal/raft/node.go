@@ -21,6 +21,10 @@ type Node struct {
 	role        Role
 	commitIndex Index
 	lastApplied Index
+
+	// Logical time in ticks since start, and the tick at which a follower or candidate times out.
+	now              int
+	electionDeadline int
 }
 
 // NewNode builds a follower from whatever storage holds; commitIndex and lastApplied start at 0.
@@ -33,7 +37,7 @@ func NewNode(cfg Config, id NodeID, peers []NodeID, storage Storage, tracer Trac
 	for _, e := range state.Log {
 		log.Append(e.Term, e.Cmd)
 	}
-	return &Node{
+	n := &Node{
 		cfg:         cfg,
 		id:          id,
 		peers:       append([]NodeID(nil), peers...),
@@ -45,7 +49,24 @@ func NewNode(cfg Config, id NodeID, peers []NodeID, storage Storage, tracer Trac
 		votedFor:    state.VotedFor,
 		log:         log,
 		role:        Follower,
-	}, nil
+	}
+	n.resetElectionTimer()
+	return n, nil
+}
+
+// resetElectionTimer draws a fresh timeout, so nodes that reset together do not expire together.
+func (n *Node) resetElectionTimer() {
+	n.electionDeadline = n.now + n.timeouts.Next()
+}
+
+// Tick advances logical time by one tick. A follower or candidate whose deadline has
+// passed reports an election timeout; a leader has no election timer.
+func (n *Node) Tick() []Message {
+	n.now++
+	if n.role != Leader && n.now >= n.electionDeadline {
+		trace(n.tracer, Event{Node: n.id, Term: n.currentTerm, Role: n.role, Kind: "election-timeout"})
+	}
+	return nil
 }
 
 // Snapshot is a read-only copy of a node's state for tests and the safety checkers.
@@ -115,6 +136,8 @@ func (n *Node) handleRequestVote(from NodeID, args RequestVoteArgs) []Message {
 			return nil
 		}
 		reply.VoteGranted = true
+		n.resetElectionTimer() // Figure 2: only granting a vote resets it, never denying
+
 	}
 	return []Message{{From: n.id, To: from, Body: reply}}
 }
