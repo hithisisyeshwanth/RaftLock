@@ -39,6 +39,7 @@ type Runtime struct {
 	done    chan struct{} // closed by Close
 	stopped chan struct{} // closed when the loop has exited
 	http    *http.Server
+	peers   map[raft.NodeID]string
 	out     map[raft.NodeID]chan raft.Message
 	pending []pending // Submits waiting for their Call to finish; loop-owned
 	once    sync.Once
@@ -72,6 +73,7 @@ func Start(cfg Config) (*Runtime, error) {
 		events:  make(chan func()),
 		done:    make(chan struct{}),
 		stopped: make(chan struct{}),
+		peers:   cfg.Peers,
 		out:     map[raft.NodeID]chan raft.Message{},
 	}
 	client := &http.Client{Timeout: sendTimeout}
@@ -83,6 +85,7 @@ func Start(cfg Config) (*Runtime, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /raft", r.handleRaft)
+	mux.HandleFunc("POST /client", r.handleClient)
 	r.http = &http.Server{Handler: mux}
 	go r.http.Serve(cfg.Listener)
 	go r.loop()

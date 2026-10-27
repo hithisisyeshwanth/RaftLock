@@ -31,6 +31,13 @@ func (c *Call) Err() error                 { return c.err }
 func (c *Call) Hint() raft.NodeID          { return c.hint }
 func (c *Call) finish(r Result, err error) { c.done, c.result, c.err = true, r, err }
 
+// NewCall returns a finished Call, for a Transport that gets its answer from elsewhere.
+func NewCall(r Result, err error, hint raft.NodeID) *Call {
+	c := &Call{hint: hint}
+	c.finish(r, err)
+	return c
+}
+
 // waitKey names the log entry a Submit is waiting for. The term matters: if a different entry
 // ends up at that index, the command was lost with its leader and will never apply.
 type waitKey struct {

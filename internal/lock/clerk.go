@@ -52,6 +52,10 @@ func NewClerk(clientID string, servers []raft.NodeID, tr Transport) *Clerk {
 
 func (c *Clerk) Leader() raft.NodeID { return c.leader }
 
+// SetSeq makes the next request use seq+1. A client that outlives its Clerk, such as one CLI run
+// after another, must start above every seq it used before, or its request is answered as a duplicate.
+func (c *Clerk) SetSeq(seq uint64) { c.seq = seq }
+
 // Do starts a request and returns its Call, which completes once a leader has applied it.
 func (c *Clerk) Do(cmd Command) *Call {
 	c.op, c.cmd, c.backoff = &Call{}, cmd, 0
