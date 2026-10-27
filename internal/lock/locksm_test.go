@@ -1,12 +1,20 @@
 package lock
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/hithisisyeshwanth/RaftLock/internal/raft"
 )
 
 var _ StateMachine = (*LockSM)(nil)
+
+// lockTable is just the locks, without the deduplication table that Dump also includes (T5.3):
+// a refused command is still recorded for deduplication, but must leave the locks alone.
+func lockTable(sm *LockSM) string {
+	b, _ := json.Marshal(sm.locks)
+	return string(b)
+}
 
 // Every client numbers its commands 1, 2, 3, ... so these tests never look like retries to the
 // deduplication T5.3 adds.
@@ -106,13 +114,13 @@ func TestLockSMReleaseRejected(t *testing.T) {
 			sm := NewLockSM()
 			c1, c2 := &client{id: "c1"}, &client{id: "c2"}
 			tt.setup(sm, c1, c2)
-			before := sm.Dump()
+			before := lockTable(sm)
 
 			by := map[string]*client{"c1": c1, "c2": c2}[tt.by]
 			if r := by.release(sm, 9, "jobs", tt.token); r.OK {
 				t.Errorf("release = %+v, want rejected", r)
 			}
-			if after := sm.Dump(); after != before {
+			if after := lockTable(sm); after != before {
 				t.Errorf("a rejected release changed the lock table:\nbefore %s\nafter  %s", before, after)
 			}
 		})
