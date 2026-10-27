@@ -192,7 +192,7 @@ func (n *Node) Step(m Message) []Message {
 	case AppendEntriesArgs:
 		return n.handleAppendEntries(m.From, body)
 	case AppendEntriesReply:
-		return n.handleAppendEntriesReply(body)
+		return n.handleAppendEntriesReply(m.From, body)
 	}
 	return nil
 }
@@ -297,10 +297,21 @@ func (n *Node) buildAppendEntries(peer NodeID) AppendEntriesArgs {
 	}
 }
 
-// handleAppendEntriesReply only checks the term for now: a higher term means a newer
-// leader exists, so step down. Acting on success and failure is T3.6 and T3.7.
-func (n *Node) handleAppendEntriesReply(r AppendEntriesReply) []Message {
-	n.adoptTermIfHigher(r.Term)
+// handleAppendEntriesReply is slide 8. A higher term means a newer leader exists, so step down.
+// Otherwise only a leader acts, only on replies from its peers in its current term. A success
+// proves the follower holds everything up to MatchIndex; replies can be late, duplicated, or
+// reordered, so matchIndex only ever moves forward. Failures are T3.7.
+func (n *Node) handleAppendEntriesReply(from NodeID, r AppendEntriesReply) []Message {
+	if n.adoptTermIfHigher(r.Term) || r.Term > n.currentTerm {
+		return nil // stepped down, or the higher term could not be saved
+	}
+	if n.role != Leader || r.Term != n.currentTerm || !n.isPeer(from) {
+		return nil
+	}
+	if r.Success && r.MatchIndex > n.matchIndex[from] {
+		n.matchIndex[from] = r.MatchIndex
+		n.nextIndex[from] = r.MatchIndex + 1
+	}
 	return nil
 }
 
