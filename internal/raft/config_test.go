@@ -15,8 +15,8 @@ func TestConfigDefaults(t *testing.T) {
 	if c.ElectionTimeoutMax != 300 {
 		t.Errorf("ElectionTimeoutMax = %d, want 300", c.ElectionTimeoutMax)
 	}
-	if c.HeartbeatInterval != 50 {
-		t.Errorf("HeartbeatInterval = %d, want 50", c.HeartbeatInterval)
+	if c.HeartbeatInterval != 30 { // T6.2: at most a fifth of the election minimum
+		t.Errorf("HeartbeatInterval = %d, want 30", c.HeartbeatInterval)
 	}
 	if err := c.Validate(); err != nil {
 		t.Errorf("DefaultConfig().Validate() = %v, want nil", err)
@@ -29,13 +29,13 @@ func TestConfigValidate(t *testing.T) {
 		cfg     Config
 		wantErr bool
 	}{
-		{"defaults", Config{ElectionTimeoutMin: 150, ElectionTimeoutMax: 300, HeartbeatInterval: 50}, false},
-		{"smallest valid", Config{ElectionTimeoutMin: 2, ElectionTimeoutMax: 3, HeartbeatInterval: 1}, false},
+		{"defaults", Config{ElectionTimeoutMin: 150, ElectionTimeoutMax: 300, HeartbeatInterval: 30}, false},
+		{"smallest valid", Config{ElectionTimeoutMin: 5, ElectionTimeoutMax: 6, HeartbeatInterval: 1}, false},
 		{"min equals max", Config{ElectionTimeoutMin: 200, ElectionTimeoutMax: 200, HeartbeatInterval: 50}, true},
 		{"min above max", Config{ElectionTimeoutMin: 300, ElectionTimeoutMax: 150, HeartbeatInterval: 50}, true},
 		{"heartbeat equals min", Config{ElectionTimeoutMin: 150, ElectionTimeoutMax: 300, HeartbeatInterval: 150}, true},
 		{"heartbeat above min", Config{ElectionTimeoutMin: 150, ElectionTimeoutMax: 300, HeartbeatInterval: 200}, true},
-		{"heartbeat just below min", Config{ElectionTimeoutMin: 150, ElectionTimeoutMax: 300, HeartbeatInterval: 149}, false},
+		{"heartbeat just below min", Config{ElectionTimeoutMin: 150, ElectionTimeoutMax: 300, HeartbeatInterval: 149}, true}, // T6.2: under 5 heartbeats
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

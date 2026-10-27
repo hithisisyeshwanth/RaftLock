@@ -212,6 +212,10 @@ func TestClerkLeaderChangeMidRequestHasOneEffect(t *testing.T) {
 		if call.Err() != nil || !call.Result().OK {
 			t.Fatalf("wait %d: request = %+v, %v; want a grant", wait, call.Result(), call.Err())
 		}
+		// The request may have finished before the crash; either way, read the log of a live new leader.
+		if err := c.RunUntil(func() bool { id, ok := c.Leader(); return ok && id != leader }, 2000); err != nil {
+			t.Fatal(err)
+		}
 		newLeader, _ := c.Leader()
 		snap, _ := c.Snapshot(newLeader)
 		var first raft.Index

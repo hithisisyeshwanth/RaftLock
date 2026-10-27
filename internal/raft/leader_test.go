@@ -91,11 +91,12 @@ func TestBecomeLeader_ImmediateHeartbeat(t *testing.T) {
 
 func TestBecomeLeader_PeriodicHeartbeats(t *testing.T) {
 	n, _, _ := electedLeader(t, "n2", "n3")
+	hb := DefaultConfig().HeartbeatInterval
 
 	for round := 1; round <= 5; round++ {
-		for i := 1; i < 50; i++ {
+		for i := 1; i < hb; i++ {
 			if out := n.Tick(); len(out) != 0 {
-				t.Fatalf("round %d, tick %d of 50: sent %+v between heartbeats", round, i, out)
+				t.Fatalf("round %d, tick %d of %d: sent %+v between heartbeats", round, i, hb, out)
 			}
 		}
 		for p, args := range appendEntriesTo(t, n.Tick(), "n2", "n3") {
@@ -153,6 +154,6 @@ func TestBecomeLeader_NotHigherReplyKeepsLeading(t *testing.T) {
 	n.Step(Message{From: "n3", To: "n1", Body: AppendEntriesReply{Term: 6, Success: true}})
 
 	wantRole(t, n, Leader, 6)
-	tick(n, 49)
+	tick(n, DefaultConfig().HeartbeatInterval-1)
 	appendEntriesTo(t, n.Tick(), "n2", "n3")
 }
