@@ -1,6 +1,9 @@
 package raft
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // Node is the deterministic Raft core: no goroutines, clocks, or network. It is not safe for concurrent use.
 type Node struct {
@@ -371,4 +374,14 @@ func (n *Node) recordVote(candidate NodeID) error {
 	}
 	n.votedFor = candidate
 	return nil
+}
+
+// majorityMatch returns the largest index held by a majority of nodes, given one matchIndex per
+// node with the leader's own included: sorted descending, the value at position quorum-1.
+func majorityMatch(matchIndexes []Index) Index {
+	sorted := slices.Clone(matchIndexes)
+	slices.Sort(sorted)
+	slices.Reverse(sorted)
+	quorum := len(sorted)/2 + 1
+	return sorted[quorum-1]
 }
