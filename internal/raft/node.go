@@ -314,6 +314,12 @@ func (n *Node) handleAppendEntriesReply(from NodeID, r AppendEntriesReply) []Mes
 		if r.MatchIndex > n.matchIndex[from] {
 			n.matchIndex[from] = r.MatchIndex
 			n.nextIndex[from] = r.MatchIndex + 1
+			// The leader holds its whole log; commitIndex is volatile, so nothing is saved.
+			matches := []Index{n.log.LastIndex()}
+			for _, p := range n.peers {
+				matches = append(matches, n.matchIndex[p])
+			}
+			n.commitIndex = nextCommitIndex(n.log, matches, n.currentTerm, n.commitIndex)
 		}
 		return nil
 	}
