@@ -263,6 +263,26 @@ func (n *Node) sendHeartbeats() []Message {
 	return out
 }
 
+// buildAppendEntries is slide 5 and Figure 2's leader rule: send peer every entry from its
+// nextIndex on, anchored at the entry just before it. Entries are deep copies, because the
+// args travel to another node and must not share the leader's log.
+func (n *Node) buildAppendEntries(peer NodeID) AppendEntriesArgs {
+	next := n.nextIndex[peer]
+	prevTerm, _ := n.log.Term(next - 1)
+	entries := n.log.Slice(next, n.log.LastIndex()+1)
+	for i := range entries {
+		entries[i].Cmd = append([]byte(nil), entries[i].Cmd...)
+	}
+	return AppendEntriesArgs{
+		Term:         n.currentTerm,
+		LeaderID:     n.id,
+		PrevLogIndex: next - 1,
+		PrevLogTerm:  prevTerm,
+		Entries:      entries,
+		LeaderCommit: n.commitIndex,
+	}
+}
+
 // handleAppendEntriesReply only checks the term for now: a higher term means a newer
 // leader exists, so step down. Acting on success and failure is T3.6 and T3.7.
 func (n *Node) handleAppendEntriesReply(r AppendEntriesReply) []Message {
