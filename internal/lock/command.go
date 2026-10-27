@@ -29,6 +29,7 @@ const (
 	Acquire Kind = "acquire"
 	Release Kind = "release"
 	Expire  Kind = "expire" // proposed by the leader, never by a client
+	Status  Kind = "status" // read-only: goes through the log so the answer is never stale
 )
 
 // Command is one lock operation as stored in the Raft log. Not every field applies to every kind.
@@ -61,5 +62,5 @@ func Decode(b []byte) (Command, error) {
 }
 
 func (k Kind) valid() bool {
-	return k == Acquire || k == Release || k == Expire
+	return k == Acquire || k == Release || k == Expire || k == Status
 }

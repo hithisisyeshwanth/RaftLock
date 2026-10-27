@@ -73,6 +73,11 @@ func (s *LockSM) apply(index raft.Index, c Command) Result {
 		}
 		delete(s.locks, c.Lock)
 		return Result{OK: true}
+	case Status:
+		// A read applied at its place in the log sees every write committed before it, and a
+		// leader that has been deposed can never commit it, so it never answers from stale state.
+		h := s.locks[c.Lock]
+		return Result{OK: true, Holder: h.Client, Token: h.Token}
 	case Expire:
 		// Proposed by the leader when a lease runs out. It names the grant it means to end, so a
 		// late Expire for a grant that was already released or replaced changes nothing.
