@@ -175,6 +175,11 @@ func (c *Cluster) Propose(id raft.NodeID, cmd []byte) (raft.ProposeResult, error
 // SetTimeouts replaces the election timeout source id will use from its next Restart on.
 func (c *Cluster) SetTimeouts(id raft.NodeID, ts raft.TimeoutSource) { c.timeouts[id] = ts }
 
+// SetDrop, SetDuplicate and SetDelay change the fake network's fault rates (see netsim.Network).
+func (c *Cluster) SetDrop(rate float64)      { c.net.SetDrop(rate) }
+func (c *Cluster) SetDuplicate(rate float64) { c.net.SetDuplicate(rate) }
+func (c *Cluster) SetDelay(min, max int)     { c.net.SetDelay(min, max) }
+
 func (c *Cluster) Partition(groups ...[]raft.NodeID) { c.net.Partition(groups...) }
 
 func (c *Cluster) Heal() { c.net.Heal() }

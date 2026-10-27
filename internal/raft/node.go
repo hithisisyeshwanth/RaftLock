@@ -264,15 +264,12 @@ func (n *Node) becomeLeader() []Message {
 	return n.sendHeartbeats()
 }
 
-// sendHeartbeats sends every peer an empty AppendEntries anchored at its nextIndex.
-// Carrying entries is T3.2.
+// sendHeartbeats sends every peer an AppendEntries from its nextIndex, so each heartbeat also
+// carries whatever that peer is missing and repairs any earlier message that was lost.
 func (n *Node) sendHeartbeats() []Message {
 	out := make([]Message, 0, len(n.peers))
 	for _, p := range n.peers {
-		prev := n.nextIndex[p] - 1
-		prevTerm, _ := n.log.Term(prev)
-		args := AppendEntriesArgs{Term: n.currentTerm, LeaderID: n.id, PrevLogIndex: prev, PrevLogTerm: prevTerm, LeaderCommit: n.commitIndex}
-		out = append(out, Message{From: n.id, To: p, Body: args})
+		out = append(out, Message{From: n.id, To: p, Body: n.buildAppendEntries(p)})
 	}
 	return out
 }
