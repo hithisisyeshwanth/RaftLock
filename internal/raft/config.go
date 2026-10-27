@@ -10,6 +10,9 @@ type Config struct {
 	ElectionTimeoutMin int
 	ElectionTimeoutMax int
 	HeartbeatInterval  int
+
+	// DisableNoop stops a new leader appending its no-op. Tests only: Figure 8 (T4.7) needs a leader without one.
+	DisableNoop bool
 }
 
 func DefaultConfig() Config {

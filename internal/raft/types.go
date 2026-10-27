@@ -33,6 +33,7 @@ type Entry struct {
 	Term  Term
 	Index Index
 	Cmd   []byte
+	Noop  bool // a leader's election no-op (section 8): committed like any entry, never applied
 }
 
 // Equal exists because Entry holds a slice and so cannot use ==.

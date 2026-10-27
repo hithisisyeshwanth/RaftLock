@@ -15,7 +15,9 @@ func electedLeader(t *testing.T, peers ...NodeID) (*Node, []Message, *MemStorage
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := NewNode(DefaultConfig(), "n1", peers, st, nil, NewFixedTimeouts(150), func(Entry) {})
+	cfg := DefaultConfig()
+	cfg.DisableNoop = true // these tests predate the T4.6 no-op and count log indexes without it
+	n, err := NewNode(cfg, "n1", peers, st, nil, NewFixedTimeouts(150), func(Entry) {})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -120,6 +120,7 @@ func TestApplyOnLeader(t *testing.T) {
 	st := NewMemStorage()
 	st.Save(PersistentState{CurrentTerm: 5, Log: []Entry{en(1, 1, "a"), en(2, 3, "b")}})
 	n, a := applyingFollower(t, st)
+	n.cfg.DisableNoop = true // this test predates the T4.6 no-op and counts log indexes without it
 	tick(n, 150)
 	voteReply(n, "n2", 6, true)
 	wantRole(t, n, Leader, 6)

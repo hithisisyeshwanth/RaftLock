@@ -78,3 +78,9 @@ func mergeEntries(log []Entry, prevIndex Index, entries []Entry) ([]Entry, bool)
 	}
 	return merged, false
 }
+
+// push appends e as the next entry, keeping all its fields (Append only takes a term and command).
+func (l *Log) push(e Entry) {
+	e.Index = l.LastIndex() + 1
+	l.entries = append(l.entries, e)
+}

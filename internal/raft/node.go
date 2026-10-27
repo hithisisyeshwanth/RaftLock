@@ -49,7 +49,7 @@ func NewNode(cfg Config, id NodeID, peers []NodeID, storage Storage, tracer Trac
 	}
 	log := NewLog()
 	for _, e := range state.Log {
-		log.Append(e.Term, e.Cmd)
+		log.push(e)
 	}
 	n := &Node{
 		cfg:         cfg,
@@ -225,7 +225,7 @@ func (n *Node) handleAppendEntries(from NodeID, args AppendEntriesArgs) []Messag
 			}
 			n.log = NewLog()
 			for _, e := range merged {
-				n.log.Append(e.Term, e.Cmd)
+				n.log.push(e)
 			}
 		}
 		reply.Success = true
@@ -267,6 +267,15 @@ func (n *Node) becomeLeader() []Message {
 	for _, p := range n.peers {
 		n.nextIndex[p] = n.log.LastIndex() + 1
 		n.matchIndex[p] = 0
+	}
+	// Section 8: an entry from its own term lets the new leader commit older-term entries (Figure 8)
+	// without waiting for a client. nextIndex is set above, so the first heartbeat carries it.
+	if !n.cfg.DisableNoop {
+		e := Entry{Term: n.currentTerm, Index: n.log.LastIndex() + 1, Noop: true}
+		if err := n.storage.Save(PersistentState{CurrentTerm: n.currentTerm, VotedFor: n.votedFor, Log: append(n.log.Slice(1, n.log.LastIndex()+1), e)}); err != nil {
+			return nil
+		}
+		n.log.push(e)
 	}
 	n.heartbeatDeadline = n.now + n.cfg.HeartbeatInterval
 	return n.sendHeartbeats()
@@ -420,7 +429,7 @@ func (n *Node) applyCommitted() {
 		n.lastApplied++
 		e, _ := n.log.Get(n.lastApplied)
 		e.Cmd = append([]byte(nil), e.Cmd...) // the state machine gets its own copy
-		if n.onApply != nil {
+		if n.onApply != nil && !e.Noop {
 			n.onApply(e)
 		}
 	}

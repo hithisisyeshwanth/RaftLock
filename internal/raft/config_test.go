@@ -29,13 +29,13 @@ func TestConfigValidate(t *testing.T) {
 		cfg     Config
 		wantErr bool
 	}{
-		{"defaults", Config{150, 300, 50}, false},
-		{"smallest valid", Config{2, 3, 1}, false},
-		{"min equals max", Config{200, 200, 50}, true},
-		{"min above max", Config{300, 150, 50}, true},
-		{"heartbeat equals min", Config{150, 300, 150}, true},
-		{"heartbeat above min", Config{150, 300, 200}, true},
-		{"heartbeat just below min", Config{150, 300, 149}, false},
+		{"defaults", Config{ElectionTimeoutMin: 150, ElectionTimeoutMax: 300, HeartbeatInterval: 50}, false},
+		{"smallest valid", Config{ElectionTimeoutMin: 2, ElectionTimeoutMax: 3, HeartbeatInterval: 1}, false},
+		{"min equals max", Config{ElectionTimeoutMin: 200, ElectionTimeoutMax: 200, HeartbeatInterval: 50}, true},
+		{"min above max", Config{ElectionTimeoutMin: 300, ElectionTimeoutMax: 150, HeartbeatInterval: 50}, true},
+		{"heartbeat equals min", Config{ElectionTimeoutMin: 150, ElectionTimeoutMax: 300, HeartbeatInterval: 150}, true},
+		{"heartbeat above min", Config{ElectionTimeoutMin: 150, ElectionTimeoutMax: 300, HeartbeatInterval: 200}, true},
+		{"heartbeat just below min", Config{ElectionTimeoutMin: 150, ElectionTimeoutMax: 300, HeartbeatInterval: 149}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
