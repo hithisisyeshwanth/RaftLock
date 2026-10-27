@@ -197,22 +197,36 @@ func (n *Node) Step(m Message) []Message {
 	return nil
 }
 
-// handleAppendEntries implements the term and role part of AppendEntries (slide 6, Figure 2
-// rule 1): reject a stale term; otherwise the sender is this term's leader, so record it,
-// step down if a candidate, and reset the election timer.
-// ponytail: no log consistency check or merge yet (T3.3 to T3.5), so every current-term
-// request succeeds. Only empty-log heartbeats with prevLogIndex 0 are correct until then.
+// handleAppendEntries is Figure 2's AppendEntries rules 1 to 4 (slides 6 and 7). A stale term is
+// rejected. Otherwise the sender is this term's leader, so record it, step down if a candidate,
+// and reset the election timer; then accept only if the log matches at prevLogIndex, merging the
+// entries in. A changed log is saved before the reply is built; if that fails, nothing is sent.
 func (n *Node) handleAppendEntries(from NodeID, args AppendEntriesArgs) []Message {
 	n.adoptTermIfHigher(args.Term)
 	if args.Term > n.currentTerm {
 		return nil // the higher term could not be saved
 	}
 	reply := AppendEntriesReply{Term: n.currentTerm, PrevLogIndex: args.PrevLogIndex}
-	if args.Term == n.currentTerm {
-		n.role = Follower
-		n.leaderID = args.LeaderID
-		n.resetElectionTimer()
+	if args.Term < n.currentTerm {
+		return []Message{{From: n.id, To: from, Body: reply}}
+	}
+	n.role = Follower
+	n.leaderID = args.LeaderID
+	n.resetElectionTimer()
+
+	if logOK(n.log, args.PrevLogIndex, args.PrevLogTerm) {
+		merged, changed := mergeEntries(n.log.Slice(1, n.log.LastIndex()+1), args.PrevLogIndex, args.Entries)
+		if changed {
+			if err := n.storage.Save(PersistentState{CurrentTerm: n.currentTerm, VotedFor: n.votedFor, Log: merged}); err != nil {
+				return nil
+			}
+			n.log = NewLog()
+			for _, e := range merged {
+				n.log.Append(e.Term, e.Cmd)
+			}
+		}
 		reply.Success = true
+		reply.MatchIndex = args.PrevLogIndex + Index(len(args.Entries))
 	}
 	return []Message{{From: n.id, To: from, Body: reply}}
 }
