@@ -233,6 +233,7 @@ func (n *Node) handleAppendEntries(from NodeID, args AppendEntriesArgs) []Messag
 		// Rule 5: commit no further than this message proved; entries past it may be stale.
 		if args.LeaderCommit > n.commitIndex {
 			n.commitIndex = max(n.commitIndex, min(args.LeaderCommit, reply.MatchIndex))
+			n.applyCommitted()
 		}
 	}
 	return []Message{{From: n.id, To: from, Body: reply}}
@@ -324,6 +325,7 @@ func (n *Node) handleAppendEntriesReply(from NodeID, r AppendEntriesReply) []Mes
 				matches = append(matches, n.matchIndex[p])
 			}
 			n.commitIndex = nextCommitIndex(n.log, matches, n.currentTerm, n.commitIndex)
+			n.applyCommitted()
 		}
 		return nil
 	}
@@ -407,4 +409,19 @@ func nextCommitIndex(log *Log, matchIndexes []Index, currentTerm Term, commitInd
 		return n
 	}
 	return commitIndex
+}
+
+// applyCommitted hands every committed but unapplied entry to onApply, in log order, exactly
+// once. lastApplied is advanced before each call, so the callback sees state that already
+// includes its entry; the callback must not call back into the node. lastApplied is volatile,
+// so after a restart the whole committed log is applied again from index 1.
+func (n *Node) applyCommitted() {
+	for n.lastApplied < n.commitIndex {
+		n.lastApplied++
+		e, _ := n.log.Get(n.lastApplied)
+		e.Cmd = append([]byte(nil), e.Cmd...) // the state machine gets its own copy
+		if n.onApply != nil {
+			n.onApply(e)
+		}
+	}
 }
