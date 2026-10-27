@@ -385,3 +385,16 @@ func majorityMatch(matchIndexes []Index) Index {
 	quorum := len(sorted)/2 + 1
 	return sorted[quorum-1]
 }
+
+// nextCommitIndex is Figure 2's leader rule 4 (slide 9, section 5.4.2): commit the largest N on a
+// majority, but only if log[N] is from currentTerm. An older-term entry on a majority can still be
+// overwritten (Figure 8), so it commits only once a current-term entry after it does. Log terms
+// never decrease, so if log[N] is older than currentTerm every smaller N is too, and checking the
+// majority index alone is enough. commitIndex never goes down.
+func nextCommitIndex(log *Log, matchIndexes []Index, currentTerm Term, commitIndex Index) Index {
+	n := majorityMatch(matchIndexes)
+	if term, ok := log.Term(n); n > commitIndex && ok && term == currentTerm {
+		return n
+	}
+	return commitIndex
+}
