@@ -21,8 +21,18 @@ func ackedNow(c *Cluster, p proposal) bool {
 	return live && s.CommitIndex >= p.index && int(p.index) <= len(s.Log) && s.Log[p.index-1].Term == p.term
 }
 
-// sameApplied reports whether all three nodes are live and have applied identical, non-empty sequences.
+// sameApplied reports whether all three nodes are live, hold identical fully committed logs, and
+// have applied identical, non-empty sequences. Equal applied lists alone are not enough: nodes can
+// agree while the leader still has entries to commit.
 func sameApplied(c *Cluster) bool {
+	if !converged(c)() {
+		return false
+	}
+	for _, id := range three {
+		if s, _ := c.Snapshot(id); s.CommitIndex != raft.Index(len(s.Log)) {
+			return false
+		}
+	}
 	first := c.applied["n1"]
 	if len(first) == 0 {
 		return false

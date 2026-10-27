@@ -47,7 +47,8 @@ func cloneState(s PersistentState) PersistentState {
 	if s.Log != nil {
 		log := make([]Entry, len(s.Log))
 		for i, e := range s.Log {
-			log[i] = Entry{Term: e.Term, Index: e.Index, Cmd: append([]byte(nil), e.Cmd...)}
+			e.Cmd = append([]byte(nil), e.Cmd...) // copy the whole entry, so fields like Noop survive
+			log[i] = e
 		}
 		s.Log = log
 	}
