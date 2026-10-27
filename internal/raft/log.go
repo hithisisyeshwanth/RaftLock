@@ -47,3 +47,14 @@ func (l *Log) TruncateFrom(i Index) {
 func (l *Log) Slice(from, to Index) []Entry {
 	return append([]Entry(nil), l.entries[from:to]...)
 }
+
+// logOK is slide 6 and Figure 2's AppendEntries rule 2: the follower's log must hold an entry
+// at prevIndex with term prevTerm. Length is checked first, because Term reports 0 for a
+// missing entry, which would otherwise match a prevTerm of 0. Index 0 is the sentinel, always present.
+func logOK(log *Log, prevIndex Index, prevTerm Term) bool {
+	if prevIndex == 0 {
+		return true
+	}
+	term, ok := log.Term(prevIndex)
+	return ok && term == prevTerm
+}
