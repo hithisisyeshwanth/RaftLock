@@ -14,7 +14,8 @@ import (
 type Cluster struct {
 	cfg      raft.Config
 	ids      []raft.NodeID
-	nodes    map[raft.NodeID]*raft.Node // nil while crashed
+	nodes    map[raft.NodeID]Peer // nil while crashed
+	newPeer  PeerFactory
 	storage  map[raft.NodeID]*raft.MemStorage
 	timeouts map[raft.NodeID]raft.TimeoutSource
 	applied  map[raft.NodeID][]raft.Entry // every entry applied since the node last booted
@@ -29,6 +30,27 @@ type Cluster struct {
 	Tracer raft.Tracer
 }
 
+// Peer is what the cluster runs on each node: a bare *raft.Node, or something built around one,
+// such as a lock server.
+type Peer interface {
+	Tick() []raft.Message
+	Step(raft.Message) []raft.Message
+	Snapshot() raft.Snapshot
+	Propose(cmd []byte) (raft.ProposeResult, []raft.Message)
+}
+
+// PeerFactory builds one node's peer. It takes raft.NewNode's arguments; onApply is the cluster's
+// observer of applied entries and must be passed through to the node.
+type PeerFactory func(cfg raft.Config, id raft.NodeID, peers []raft.NodeID, st raft.Storage, tr raft.Tracer, to raft.TimeoutSource, onApply func(raft.Entry)) (Peer, error)
+
+func newRaftNode(cfg raft.Config, id raft.NodeID, peers []raft.NodeID, st raft.Storage, tr raft.Tracer, to raft.TimeoutSource, onApply func(raft.Entry)) (Peer, error) {
+	n, err := raft.NewNode(cfg, id, peers, st, tr, to, onApply)
+	if err != nil {
+		return nil, err // a nil *raft.Node in a Peer would not compare equal to nil
+	}
+	return n, nil
+}
+
 // forwardTracer lets nodes built before Cluster.Tracer is set still reach it.
 type forwardTracer struct{ c *Cluster }
 
@@ -38,10 +60,15 @@ func (f forwardTracer) Trace(e raft.Event) {
 	}
 }
 
-func NewCluster(n int, seed int64) *Cluster {
+// NewCluster runs n bare Raft nodes.
+func NewCluster(n int, seed int64) *Cluster { return NewClusterWith(n, seed, newRaftNode) }
+
+// NewClusterWith runs n peers built by newPeer, so the same harness can run lock servers.
+func NewClusterWith(n int, seed int64, newPeer PeerFactory) *Cluster {
 	c := &Cluster{
 		cfg:      raft.DefaultConfig(),
-		nodes:    map[raft.NodeID]*raft.Node{},
+		nodes:    map[raft.NodeID]Peer{},
+		newPeer:  newPeer,
 		storage:  map[raft.NodeID]*raft.MemStorage{},
 		timeouts: map[raft.NodeID]raft.TimeoutSource{},
 		applied:  map[raft.NodeID][]raft.Entry{},
@@ -69,12 +96,12 @@ func (c *Cluster) Step() error {
 	c.now++
 	for _, id := range c.ids {
 		if n := c.nodes[id]; n != nil {
-			c.send(n.Tick())
+			c.Send(n.Tick())
 		}
 	}
 	for _, m := range c.net.Advance(c.now) {
 		if n := c.nodes[m.To]; n != nil { // a crashed node receives nothing
-			c.send(n.Step(m))
+			c.Send(n.Step(m))
 		}
 	}
 	snaps := c.checkSnapshots()
@@ -87,7 +114,8 @@ func (c *Cluster) Step() error {
 	return nil
 }
 
-func (c *Cluster) send(msgs []raft.Message) {
+// Send puts msgs on the network, as if their senders had returned them.
+func (c *Cluster) Send(msgs []raft.Message) {
 	for _, m := range msgs {
 		c.net.Send(m)
 	}
@@ -153,7 +181,7 @@ func (c *Cluster) Restart(id raft.NodeID) error {
 	}
 	c.applied[id] = nil
 	onApply := func(e raft.Entry) { c.applied[id] = append(c.applied[id], e) }
-	n, err := raft.NewNode(c.cfg, id, peers, c.storage[id], forwardTracer{c}, c.timeouts[id], onApply)
+	n, err := c.newPeer(c.cfg, id, peers, c.storage[id], forwardTracer{c}, c.timeouts[id], onApply)
 	if err != nil {
 		return fmt.Errorf("restart %s: %w", id, err)
 	}
@@ -168,7 +196,7 @@ func (c *Cluster) Propose(id raft.NodeID, cmd []byte) (raft.ProposeResult, error
 		return raft.ProposeResult{}, fmt.Errorf("propose: %s is crashed", id)
 	}
 	res, out := n.Propose(cmd)
-	c.send(out)
+	c.Send(out)
 	return res, nil
 }
 
@@ -195,6 +223,9 @@ func (c *Cluster) Snapshot(id raft.NodeID) (raft.Snapshot, bool) {
 	}
 	return n.Snapshot(), true
 }
+
+// Peer returns id's running peer, or nil while id is crashed.
+func (c *Cluster) Peer(id raft.NodeID) Peer { return c.nodes[id] }
 
 func (c *Cluster) Storage(id raft.NodeID) *raft.MemStorage { return c.storage[id] }
 
