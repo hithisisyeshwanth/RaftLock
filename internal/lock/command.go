@@ -15,9 +15,12 @@ type StateMachine interface {
 	Apply(index raft.Index, cmd []byte) Result
 }
 
-// Result is what applying one command produced. T5.2 adds the lock outcome fields.
+// Result is what applying one command produced.
 type Result struct {
-	Err string // set when the command could not be applied, e.g. it did not decode
+	OK     bool
+	Token  raft.Index // Acquire: the fencing token of the grant
+	Holder string     // Acquire denied: the client that holds the lock
+	Err    string     // why the command was refused or could not be applied
 }
 
 type Kind string
