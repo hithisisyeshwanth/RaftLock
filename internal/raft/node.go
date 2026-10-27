@@ -300,7 +300,9 @@ func (n *Node) buildAppendEntries(peer NodeID) AppendEntriesArgs {
 // handleAppendEntriesReply is slide 8. A higher term means a newer leader exists, so step down.
 // Otherwise only a leader acts, only on replies from its peers in its current term. A success
 // proves the follower holds everything up to MatchIndex; replies can be late, duplicated, or
-// reordered, so matchIndex only ever moves forward. Failures are T3.7.
+// reordered, so matchIndex only ever moves forward. A failure means the follower's log does not
+// match at nextIndex-1, so step back one and resend at once; a failure whose echoed PrevLogIndex
+// is not nextIndex-1 answers an older request and is ignored, and nextIndex never drops below 1.
 func (n *Node) handleAppendEntriesReply(from NodeID, r AppendEntriesReply) []Message {
 	if n.adoptTermIfHigher(r.Term) || r.Term > n.currentTerm {
 		return nil // stepped down, or the higher term could not be saved
@@ -308,11 +310,18 @@ func (n *Node) handleAppendEntriesReply(from NodeID, r AppendEntriesReply) []Mes
 	if n.role != Leader || r.Term != n.currentTerm || !n.isPeer(from) {
 		return nil
 	}
-	if r.Success && r.MatchIndex > n.matchIndex[from] {
-		n.matchIndex[from] = r.MatchIndex
-		n.nextIndex[from] = r.MatchIndex + 1
+	if r.Success {
+		if r.MatchIndex > n.matchIndex[from] {
+			n.matchIndex[from] = r.MatchIndex
+			n.nextIndex[from] = r.MatchIndex + 1
+		}
+		return nil
 	}
-	return nil
+	if r.PrevLogIndex != n.nextIndex[from]-1 || n.nextIndex[from] <= 1 {
+		return nil
+	}
+	n.nextIndex[from]--
+	return []Message{{From: n.id, To: from, Body: n.buildAppendEntries(from)}}
 }
 
 func (n *Node) isPeer(id NodeID) bool {
