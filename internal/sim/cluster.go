@@ -172,6 +172,9 @@ func (c *Cluster) Propose(id raft.NodeID, cmd []byte) (raft.ProposeResult, error
 	return res, nil
 }
 
+// SetConfig replaces the config every node uses from its next Restart on.
+func (c *Cluster) SetConfig(cfg raft.Config) { c.cfg = cfg }
+
 // SetTimeouts replaces the election timeout source id will use from its next Restart on.
 func (c *Cluster) SetTimeouts(id raft.NodeID, ts raft.TimeoutSource) { c.timeouts[id] = ts }
 
