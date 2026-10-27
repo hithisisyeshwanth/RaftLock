@@ -58,3 +58,23 @@ func logOK(log *Log, prevIndex Index, prevTerm Term) bool {
 	term, ok := log.Term(prevIndex)
 	return ok && term == prevTerm
 }
+
+// mergeEntries is Figure 2's AppendEntries rules 3 and 4 (slide 7), given that logOK(prevIndex)
+// holds. log and the result are entries from index 1 with no sentinel. Entries the log already
+// has are skipped; the log is truncated only at the first index whose term conflicts, never just
+// because a message is shorter (a delayed old message must not delete later entries). The inputs
+// are not modified, so a caller can save the result before replacing its own log.
+func mergeEntries(log []Entry, prevIndex Index, entries []Entry) ([]Entry, bool) {
+	merged := append([]Entry(nil), log...)
+	for i, e := range entries {
+		pos := int(prevIndex) + i // position of e in merged
+		if pos < len(merged) {
+			if merged[pos].Term == e.Term {
+				continue
+			}
+			merged = merged[:pos]
+		}
+		return append(merged, entries[i:]...), true
+	}
+	return merged, false
+}
