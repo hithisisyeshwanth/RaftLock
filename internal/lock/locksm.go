@@ -73,8 +73,17 @@ func (s *LockSM) apply(index raft.Index, c Command) Result {
 		}
 		delete(s.locks, c.Lock)
 		return Result{OK: true}
+	case Expire:
+		// Proposed by the leader when a lease runs out. It names the grant it means to end, so a
+		// late Expire for a grant that was already released or replaced changes nothing.
+		h, held := s.locks[c.Lock]
+		if !held || h.Token != c.Token {
+			return Result{Err: fmt.Sprintf("lock %q has no grant with token %d to expire", c.Lock, c.Token)}
+		}
+		delete(s.locks, c.Lock)
+		return Result{OK: true}
 	}
-	return Result{Err: fmt.Sprintf("%s is not supported yet", c.Kind)} // Expire is T5.4
+	return Result{Err: fmt.Sprintf("unknown command kind %q", c.Kind)}
 }
 
 // Dump is the whole replicated state, lock table and deduplication table, as a string for
