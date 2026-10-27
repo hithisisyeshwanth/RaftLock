@@ -109,6 +109,34 @@ func (n *Node) startElection() []Message {
 	return out
 }
 
+// ProposeResult says where a proposed command was placed, or who to ask instead.
+type ProposeResult struct {
+	Index      Index
+	Term       Term
+	IsLeader   bool
+	LeaderHint NodeID // the leader a follower knows of; empty if unknown
+}
+
+// Propose is slide 4: a leader appends cmd to its own log in its current term and saves it.
+// Anyone else returns IsLeader false; only a follower can name a leader, since a candidate's
+// last known leader belongs to an older term. Replication happens on the next heartbeat.
+func (n *Node) Propose(cmd []byte) (ProposeResult, []Message) {
+	if n.role != Leader {
+		if n.role == Follower {
+			return ProposeResult{LeaderHint: n.leaderID}, nil
+		}
+		return ProposeResult{}, nil
+	}
+	e := Entry{Term: n.currentTerm, Index: n.log.LastIndex() + 1, Cmd: append([]byte(nil), cmd...)}
+	log := append(n.log.Slice(1, n.log.LastIndex()+1), e)
+	if err := n.storage.Save(PersistentState{CurrentTerm: n.currentTerm, VotedFor: n.votedFor, Log: log}); err != nil {
+		return ProposeResult{}, nil // not accepted; nothing appended, nothing sent
+	}
+	n.log.Append(e.Term, e.Cmd)
+	n.matchIndex[n.id] = e.Index
+	return ProposeResult{Index: e.Index, Term: e.Term, IsLeader: true}, nil
+}
+
 // Snapshot is a read-only copy of a node's state for tests and the safety checkers.
 type Snapshot struct {
 	ID          NodeID

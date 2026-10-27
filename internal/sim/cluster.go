@@ -161,6 +161,17 @@ func (c *Cluster) Restart(id raft.NodeID) error {
 	return nil
 }
 
+// Propose hands cmd to node id and sends whatever it returns into the network.
+func (c *Cluster) Propose(id raft.NodeID, cmd []byte) (raft.ProposeResult, error) {
+	n := c.nodes[id]
+	if n == nil {
+		return raft.ProposeResult{}, fmt.Errorf("propose: %s is crashed", id)
+	}
+	res, out := n.Propose(cmd)
+	c.send(out)
+	return res, nil
+}
+
 // SetTimeouts replaces the election timeout source id will use from its next Restart on.
 func (c *Cluster) SetTimeouts(id raft.NodeID, ts raft.TimeoutSource) { c.timeouts[id] = ts }
 
