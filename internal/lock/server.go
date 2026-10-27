@@ -47,6 +47,11 @@ type Server struct {
 	onApply func(raft.Entry)
 	now     int
 	waiters map[waitKey]*Call
+	reads   []*pendingRead // ReadIndex reads not yet answered
+	round   uint64         // last ReadIndex confirmation round
+	id      raft.NodeID
+	peers   []raft.NodeID
+	cfg     raft.Config
 
 	Timeout int // ticks a Submit waits before ErrTimeout
 }
@@ -54,7 +59,7 @@ type Server struct {
 // NewServer takes raft.NewNode's arguments and builds the node itself; onApply, if set, also sees
 // every applied entry.
 func NewServer(cfg raft.Config, id raft.NodeID, peers []raft.NodeID, st raft.Storage, tr raft.Tracer, to raft.TimeoutSource, onApply func(raft.Entry)) (*Server, error) {
-	s := &Server{sm: NewLockSM(), leases: NewLeases(), onApply: onApply, waiters: map[waitKey]*Call{}, Timeout: DefaultTimeout}
+	s := &Server{id: id, peers: append([]raft.NodeID(nil), peers...), cfg: cfg, sm: NewLockSM(), leases: NewLeases(), onApply: onApply, waiters: map[waitKey]*Call{}, Timeout: DefaultTimeout}
 	n, err := raft.NewNode(cfg, id, peers, st, tr, to, s.apply)
 	if err != nil {
 		return nil, err
@@ -99,13 +104,21 @@ func (s *Server) Tick() []raft.Message {
 		out = append(out, msgs...)
 	}
 	s.checkWaiters()
-	return out
+	return append(out, s.progressReads()...)
 }
 
+// Step handles the server's own ReadIndex messages and passes everything else to the node.
 func (s *Server) Step(m raft.Message) []raft.Message {
+	switch b := m.Body.(type) {
+	case ReadIndexPing:
+		return s.handlePing(m.From, b)
+	case ReadIndexPong:
+		s.handlePong(m.From, b)
+		return s.progressReads()
+	}
 	out := s.node.Step(m)
 	s.checkWaiters()
-	return out
+	return append(out, s.progressReads()...)
 }
 
 func (s *Server) Snapshot() raft.Snapshot { return s.node.Snapshot() }
