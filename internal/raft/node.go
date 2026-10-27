@@ -230,6 +230,10 @@ func (n *Node) handleAppendEntries(from NodeID, args AppendEntriesArgs) []Messag
 		}
 		reply.Success = true
 		reply.MatchIndex = args.PrevLogIndex + Index(len(args.Entries))
+		// Rule 5: commit no further than this message proved; entries past it may be stale.
+		if args.LeaderCommit > n.commitIndex {
+			n.commitIndex = max(n.commitIndex, min(args.LeaderCommit, reply.MatchIndex))
+		}
 	}
 	return []Message{{From: n.id, To: from, Body: reply}}
 }
