@@ -6,6 +6,8 @@ Clients acquire and release named locks. Every lock operation is an entry in a r
 
 The Raft core follows Figure 2 of Ongaro and Ousterhout, ["In Search of an Understandable Consensus Algorithm"](https://raft.github.io/raft.pdf) (extended version).
 
+![Failover demo: three nodes, kill the leader with kill -9, a new leader still knows who holds the lock](docs/media/failover.gif)
+
 ## Architecture
 
 ```mermaid
@@ -62,7 +64,7 @@ Within about a second one node logs `became leader`. Then use the CLI:
 go run ./cmd/raftlockctl --servers :7001,:7002,:7003 --client c1 acquire jobs --ttl 5000
 go run ./cmd/raftlockctl --servers :7001,:7002,:7003 --client c2 acquire jobs --ttl 5000
 go run ./cmd/raftlockctl --servers :7001,:7002,:7003 --client c2 status jobs
-go run ./cmd/raftlockctl --servers :7001,:7002,:7003 --client c1 release jobs --token 3
+go run ./cmd/raftlockctl --servers :7001,:7002,:7003 --client c1 release jobs --token 2
 ```
 
 - `acquire` prints `acquired jobs token=N`. A second client is refused with exit code 1, naming the holder.
@@ -85,11 +87,15 @@ make vet
 
 `make test` runs `go test ./... -race -count=1`.
 
+![make test: all packages pass with the race detector](docs/media/make-test.png)
+
 - **Deterministic core.** `internal/raft` takes time only through `Tick()` and messages only through `Step()`, so unit tests drive it step by step, and every simulated run replays exactly from its seed.
 - **Fake network.** `internal/netsim` drops, delays, duplicates, reorders and partitions messages. The harness crashes and restarts nodes from their stored state.
 - **Safety checkers after every step.** Election Safety, Leader Append-Only, Log Matching, Leader Completeness and State Machine Safety (Figure 3) run on the whole cluster after each harness step. Each checker is itself tested with histories that must fail it.
 - **Figure 8.** A test reproduces the paper's Figure 8 scenario on five nodes, so the current-term commit rule is exercised directly.
 - **Chaos.** A seeded chaos monkey crashes, restarts, partitions and changes drop rates while clients use the locks. Run more seeds with `CHAOS_SEEDS=100`, or replay one failure with `CHAOS_SEED=n`; a failure prints its replay command.
+
+  ![100 chaos seeds pass](docs/media/chaos.png)
 - **Linearizability.** Recorded client histories are checked against a sequential lock model with Porcupine.
 - **Lock semantics** (mutual exclusion, expiry, fencing, deduplication) are tested separately from consensus.
 - **Real runtime.** `internal/rpc` and `cmd/raftlockctl` tests start three servers on localhost ports and talk HTTP with real 1 ms ticks, including failover.
